@@ -76,7 +76,7 @@ class Card:
             return f"Not Available"
     
     def __str__(self) -> str:
-        return f"Level {self.level} {self.suit.value} gem of {self.vpValue} costing {self.cost}"
+        return f"Level {self.level} {self.suit.value} gem of {self.vpValue} points costing {self.cost} gems"
         # TODO_Display: players shouldn't need to memorize color indices: have them print out by enumerations
     def __repr__(self) -> str:
         return self.__str__()
@@ -97,7 +97,7 @@ class Deck:
         random.shuffle(self.level2Cards)
         random.shuffle(self.level3Cards)
         
-    def draw(self, level:Level) -> Optional[Card]:
+    def grabDeckByLevel(self, level:Level) -> Optional[List[Card]]:
         # alternative is using a dictionary of lambda functions, or for Python >=3.10: match
         if level == Level.ONE:
             tmpCards = self.level1Cards # mutable, so this is a reference copy (not value copy)
@@ -105,12 +105,35 @@ class Deck:
             tmpCards = self.level2Cards
         elif level == Level.THREE:
             tmpCards = self.level3Cards
+        else:
+            print(f"INVALID LEVEL in grabDeckByLevel!")
+        return tmpCards
 
+    def draw(self, level:Level, index_0Based: int = -1) -> Optional[Card]:
+        tmpCards = self.grabDeckByLevel(level)
         if not tmpCards: # n.b. not tmpCards works because an empty list is False
             print(f"Level {level} deck is empty")
             return None # deck has run out
+        elif index_0Based<0: # no given input (or invalid)
+            return tmpCards.pop() # this ALSO affects the original object to remove the card
+        elif len(tmpCards) <= (index_0Based+1):
+            return tmpCards.pop(index_0Based)
         else:
-            return tmpCards.pop() # this ALSO affects the original object
+            print(f"Invalid card index {index_0Based} for Level {level} deck with {len(tmpCards)}")
+            return None 
+    
+    def peek(self, level:Level, index_0Based: int = -1) -> Optional[Card]:
+        tmpCards = self.grabDeckByLevel(level)
+        if not tmpCards: # n.b. not tmpCards works because an empty list is False
+            print(f"Level {level} deck is empty")
+            return None # deck has run out
+        elif index_0Based<0: # no given input (or invalid)
+            return tmpCards[-1]
+        elif len(tmpCards) <= (index_0Based+1):
+            return tmpCards[index_0Based]
+        else:
+            print(f"Invalid card index {index_0Based} for Level {level} deck with {len(tmpCards)}")
+            return None 
     
     def addCard(self, Card) -> Optional[bool]:
         if Card is None:
@@ -137,7 +160,18 @@ class Deck:
         return [len(self.level1Cards),len(self.level2Cards),len(self.level3Cards)]
     def __str__(self) -> str:
         return f"Deck: {self.name}, Num cards by level: ONE: {len(self.level1Cards)}, TWO: {len(self.level2Cards)}, THREE: {len(self.level3Cards)}"
-    # TODO: Option to print full deck for troubleshooting
+    # TODO: Option to print full deck to show the tableu (and troubleshooting)
+    def printCards(self) -> str:
+        print(f"Printing {self.name}")
+        for card in self.level3Cards:
+            print(card)
+        for card in self.level2Cards:
+            print(card)
+        for card in self.level1Cards:
+            print(card)
+
+        
+        
 
 class Player:
     def __init__(self, name: str):
@@ -149,13 +183,21 @@ class Player:
             # These are the tokens gained through mining and spent to get cards. 
         self.TotalTokens = 0           # Total count is limited. 
         
-    def draw_card(self, deck: Deck, level: Level) -> Optional[Card]:
-        card = deck.draw(level = level)
+    def draw_card(self, deck: Deck, level: Level, index_0Based: int) -> Optional[Card]:
+        card = deck.peek(level = level, index_0Based = index_0Based)
+        if card is None: 
+            print(f"Attempted to peek at Level {level} index {index_0Based} but couldn't find a card there.")
+            return None
+        if deck.isAvailable(cards = card.cost, tokens = tokenCount) == "Not Available":
+            print(f"Card is too expensive: Level {level} index {index_0Based}.")
+            print(card)
+            return None
+        card = deck.draw(level = level, index_0Based = index_0Based)
         if card:
             self.hand.append(card)
-            self.cardCount.SuitAdd(card.suit, count=1) # cards always add one jem
+            self.cardCount.SuitAdd(card.suit, count=1) # cards always add one gem
             self.vpTotal = self.vpTotal + card.vpValue
-        return card # master will need to check if this was a valid draw action via return NONE
+        return card
 
     def draw_tokens(self, tokenBank: ResourceList, tokenRequest: ResourceList) -> bool:
         tmpTotalTokens = 0
@@ -177,11 +219,11 @@ class Player:
             else:
                 return False # something about the request was invalid
 
-        tmpReturn = true
+        tmpReturn = True
         for suit in SuitIndex:
             tmpReturn = tmpReturn and       tokenBank.SuitAdd(suit,-tokenRequest.SuitCount(suit))
             tmpReturn = tmpReturn and self.tokenCount.SuitAdd(suit, tokenRequest.SuitCount(suit))
-            self.TotalTokens = self.TotalTokens + self.tokenCount()
+            self.TotalTokens = self.TotalTokens + self.tokenCount.SuitCount(suit)
         return tmpReturn # before checks resonable error conditions, so no new failures are expected.
 
     def __str__(self) -> str:
@@ -215,7 +257,7 @@ class Player:
 def demoGame():
     # Create and shuffle a deck
     deck = SplendorBaseDeck.SetupBaseDeck()
-    deck.shuffle()
+    # deck.shuffle() # Tested that shuffle does not crash. Removing for testing perposes.
     print(f"Deck: {deck}")
     # Create players
     player1 = Player("Alan") # outside of this file: Splendor.Player(
@@ -223,16 +265,17 @@ def demoGame():
     
     # Create the tableu
     tableu = Deck("Tableu")
-    for i_card in range(0,4):
+    for i_card in range(0,4): # draw four cards of each level for the initial marketplace
         tableu.addCard(deck.draw(level=Level.ONE))
         tableu.addCard(deck.draw(level=Level.TWO))
         tableu.addCard(deck.draw(level=Level.THREE))
         # Verified that excessive draws do NOT result in undesired behavior 
         # and Do result in a warning
     print(f"Deck:   {deck}")
-    print(f"tableu: {tableu}")
+    # print(f"tableu: {tableu}")
+    tableu.printCards()
     numTokens  = 4 # this is based on player count. TODO: Add a dictionary here which will map player count to number tokens
-    # tokenSupply = ResourceList([
+    # tokenSupply = ResourceList([ # this side-b-side is how I'd like to set it up #
     #     (SuitIndex.GREEN,numTokens),
     #     (SuitIndex.BLUE, numTokens),
     #     (SuitIndex.RED,  numTokens),
@@ -250,7 +293,17 @@ def demoGame():
         numTokens,
         numTokens])
     print(f"tokenSupply: {tokenSupply}")
-
+    tmpRequest = ResourceList(
+        [SuitIndex.WHITE], 
+        [              2])
+    player1.draw_tokens(tokenSupply, tmpRequest )
+    player2.draw_tokens(tokenSupply, ResourceList(
+        [SuitIndex.BLUE, SuitIndex.BLACK, SuitIndex.WHITE], 
+        [             1,               1,               1]))
+    player1.draw_tokens(tokenSupply, ResourceList(
+        [SuitIndex.BLUE, SuitIndex.GREEN, SuitIndex.RED], 
+        [             1,               1,             1]))
+    player2.draw_card(deck = tableu, level = Level.ONE, index_0Based = 0) # return value not used (for now only?)
     # Examples of mining for tokens
     # Valid requests: build up supply
     # Invalid requests: check robustness
